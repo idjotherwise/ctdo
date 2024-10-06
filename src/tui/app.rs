@@ -3,7 +3,7 @@ use crossterm::event::Event;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind},
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{
         palette::{
             material::{BLUE, GREEN},
@@ -15,8 +15,8 @@ use ratatui::{
     text::{Line, Text},
     widgets::{
         block::{Position, Title},
-        Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, StatefulWidget,
-        Widget,
+        Block, Borders, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph,
+        StatefulWidget, Widget, Wrap,
     },
     DefaultTerminal, Frame,
 };
@@ -63,7 +63,7 @@ impl App {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
     }
 
@@ -122,6 +122,13 @@ impl App {
             .render(area, buf);
     }
     fn render_footer(area: Rect, buf: &mut Buffer) {
+        // let instructions = Title::from(Line::from(vec![
+        //     " Select ".into(),
+        //     "<w-s>".blue().bold(),
+        //     " Quit ".into(),
+        //     "<q> ".blue().bold(),
+        // ]));
+
         Paragraph::new("Use jk to move, h to unselect, g/G to go top/bottom")
             .centered()
             .render(area, buf);
@@ -157,48 +164,87 @@ impl App {
         // same method name `render`.
         StatefulWidget::render(list, area, buf, &mut self.tasks.state);
     }
+
+    fn render_selected_item(&self, area: Rect, buf: &mut Buffer) {
+        let info = if let Some(i) = self.tasks.state.selected() {
+            match self.tasks.items[i].completed {
+                Some(true) => format!(
+                    "[x] DONE: {}",
+                    self.tasks.items[i].description.as_ref().unwrap()
+                ),
+                Some(false) => format!(
+                    "[ ] TODO: {}",
+                    self.tasks.items[i].description.as_ref().unwrap()
+                ),
+                None => "".to_string(),
+            }
+        } else {
+            "Select an item..".to_string()
+        };
+
+        let block = Block::new()
+            .title(Line::raw("Preview").centered())
+            .borders(Borders::TOP)
+            .border_set(symbols::border::EMPTY)
+            .border_style(TODO_HEADER_STYLE)
+            .bg(NORMAL_ROW_BG)
+            .padding(Padding::horizontal(1));
+
+        Paragraph::new(info)
+            .block(block)
+            .fg(TEXT_FG_COLOR)
+            .wrap(Wrap { trim: false })
+            .render(area, buf);
+    }
 }
 
-impl Widget for &App {
+impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
-        let title = Title::from(" Counter App Tutorial ".bold());
-        let instructions = Title::from(Line::from(vec![
-            " Select ".into(),
-            "<w-s>".blue().bold(),
-            " Quit ".into(),
-            "<q> ".blue().bold(),
-        ]));
+        let [header_area, main_area, footer_area] = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Fill(1),
+            Constraint::Length(2),
+        ])
+        .areas(area);
 
-        let block = Block::bordered()
-            .title(title.alignment(Alignment::Center))
-            .title(
-                instructions
-                    .alignment(Alignment::Center)
-                    .position(Position::Bottom),
-            )
-            .border_set(border::THICK);
+        let [list_area, item_area] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]).areas(main_area);
 
-        let counter_text = Text::from(vec![
-            Line::from(vec![
-                "Value: ".into(),
-                self.tasks.items.len().to_string().yellow(),
-            ]),
-            Line::from(vec![
-                "Selected: ".into(),
-                match self.tasks.state.selected() {
-                    Some(u) => u.to_string().yellow(),
-                    None => 0.to_string().yellow(),
-                },
-            ]),
-        ]);
+        App::render_header(header_area, buf);
+        self.render_list(list_area, buf);
+        self.render_selected_item(item_area, buf);
+        App::render_footer(footer_area, buf);
 
-        Paragraph::new(counter_text)
-            .centered()
-            .block(block)
-            .render(area, buf);
+        // let block = Block::bordered()
+        //     .title(title.alignment(Alignment::Center))
+        //     .title(
+        //         instructions
+        //             .alignment(Alignment::Center)
+        //             .position(Position::Bottom),
+        //     )
+        //     .border_set(border::THICK);
+
+        // let counter_text = Text::from(vec![
+        //     Line::from(vec![
+        //         "Value: ".into(),
+        //         self.tasks.items.len().to_string().yellow(),
+        //     ]),
+        //     Line::from(vec![
+        //         "Selected: ".into(),
+        //         match self.tasks.state.selected() {
+        //             Some(u) => u.to_string().yellow(),
+        //             None => 0.to_string().yellow(),
+        //         },
+        //     ]),
+        // ]);
+
+        // Paragraph::new(counter_text)
+        //     .centered()
+        //     .block(block)
+        //     .render(area, buf);
     }
 }
 impl From<&Task> for ListItem<'_> {
@@ -213,13 +259,15 @@ impl From<&Task> for ListItem<'_> {
 }
 #[cfg(test)]
 mod tests {
+    use std::borrow::BorrowMut;
+
     use super::*;
     use ratatui::style::Style;
 
     #[test]
     fn render() -> Result<()> {
         let conn = Connection::open_in_memory()?;
-        let app = App::new(conn)?;
+        let app = App::new(conn)?.borrow_mut();
         let mut buf = Buffer::empty(Rect::new(0, 0, 50, 4));
 
         app.render(buf.area, &mut buf);
