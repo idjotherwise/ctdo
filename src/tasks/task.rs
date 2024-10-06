@@ -5,12 +5,12 @@ use super::category::Category;
 
 #[derive(Debug)]
 pub struct Task {
-    title: String,
-    description: Option<String>,
-    created_at: Option<NaiveDateTime>,
-    completed: Option<bool>,
-    completed_at: Option<NaiveDateTime>,
-    category: Category,
+    pub title: String,
+    pub description: Option<String>,
+    pub created_at: Option<NaiveDateTime>,
+    pub completed: Option<bool>,
+    pub completed_at: Option<NaiveDateTime>,
+    pub category: Category,
 }
 
 impl Task {
@@ -28,9 +28,7 @@ impl Task {
         })
     }
 
-    pub fn get_tasks() -> rusqlite::Result<Vec<Task>> {
-        let conn = Connection::open("todos.db")?;
-
+    pub fn get_tasks(conn: Connection) -> rusqlite::Result<Vec<Task>> {
         conn.execute(
             "
         create table if not exists categories (
