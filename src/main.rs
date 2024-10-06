@@ -1,135 +1,167 @@
-use chrono::NaiveDateTime;
-use crossterm::{
-    cursor, execute, queue,
-    style::{self, Stylize},
-    terminal,
+use anyhow::Result;
+use crossterm::event::Event;
+use ratatui::{
+    buffer::Buffer,
+    crossterm::event::{self, KeyCode, KeyEventKind},
+    layout::{Alignment, Rect},
+    style::Stylize,
+    symbols::border,
+    text::{Line, Text},
+    widgets::{
+        block::{Position, Title},
+        Block, Paragraph, Widget,
+    },
+    DefaultTerminal, Frame,
 };
-use rusqlite::{Connection, Row};
-use std::{
-    io::{self, Write},
-    str::FromStr,
-};
+use tasks::{get_tasks, Task};
 
-#[derive(Debug)]
-struct Task {
-    title: String,
-    description: Option<String>,
-    created_at: Option<NaiveDateTime>,
-    completed: Option<bool>,
-    completed_at: Option<NaiveDateTime>,
-    category: Category,
+mod tasks;
+
+#[derive(Debug, Default)]
+pub struct App {
+    counter: u8,
+    exit: bool,
 }
 
-#[derive(Debug)]
-struct Category {
-    name: String,
-    color: String,
-}
+impl App {
+    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        while !self.exit {
+            terminal.draw(|frame| self.draw(frame))?;
+            self.handle_events()?;
+        }
+        Ok(())
+    }
 
-fn main() -> io::Result<()> {
-    let mut stdout = io::stdout();
-    let tasks: Vec<Task> = get_tasks().unwrap().collect::<Vec<Task>>();
+    fn draw(&self, frame: &mut Frame) {
+        frame.render_widget(self, frame.area());
+    }
 
-    execute!(stdout, terminal::Clear(terminal::ClearType::All))?;
-
-    for y in 0..40 {
-        for x in 0..150 {
-            if (y == 0 || y == 40 - 2) || (x == 0 || x == 150 - 1) {
-                // in this loop we are more efficient by not flushing the buffer.
-                queue!(
-                    stdout,
-                    cursor::MoveTo(x, y),
-                    style::PrintStyledContent("█".red())
-                )?;
+    fn handle_events(&mut self) -> Result<()> {
+        match event::read()? {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                self.handle_key_event(key_event)
             }
+            _ => Ok(()),
         }
     }
-    queue!(
-        stdout,
-        cursor::MoveTo(50, 20),
-        style::PrintStyledContent("hi".black())
-    )?;
-    // stdout.flush()?;
-    Ok(())
+
+    fn handle_key_event(&mut self, key_event: event::KeyEvent) -> Result<()> {
+        match key_event.code {
+            KeyCode::Char('q') => self.exit(),
+            KeyCode::Left => self.decrement_counter()?,
+            KeyCode::Right => self.increment_counter()?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn exit(&mut self) {
+        self.exit = true;
+    }
+
+    fn decrement_counter(&mut self) -> Result<()> {
+        if self.counter < 1 {
+            return Ok(());
+        }
+        self.counter -= 1;
+        Ok(())
+    }
+
+    fn increment_counter(&mut self) -> Result<()> {
+        self.counter += 1;
+        Ok(())
+    }
 }
-fn get_tasks<'c>() -> rusqlite::Result<impl Iterator<Item = Task>> {
-    let conn = Connection::open("todos.db")?;
 
-    conn.execute(
-        "
-        create table if not exists categories (
-            id integer primary key,
-            name text not null,
-            color text not null
-        )
-    ",
-        (),
-    )?;
-    conn.execute(
-        "
-        create table if not exists tasks (
-        id integer primary key,
-        title text not null,
-        description text,
-        created_at datetime default current_timestamp,
-        completed boolean not null default 0,
-        completed_at datetime default null,
-        category_id integer,
-        foreign key (category_id) references categories(id) on delete set null
-        )
-    ",
-        (),
-    )?;
-    conn.execute("delete from tasks", ())?;
-    let category = Category {
-        name: "House".to_string(),
-        color: "Black".to_string(),
-    };
-    conn.execute(
-        "insert into categories (name, color) values (?1, ?2)",
-        (&category.name, &category.color),
-    )?;
-    let last_id = conn.last_insert_rowid();
+impl Widget for &App {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        let title = Title::from(" Counter App Tutorial ".bold());
+        let instructions = Title::from(Line::from(vec![
+            " Decrement ".into(),
+            "<Left>".blue().bold(),
+            " Increment ".into(),
+            "<Right>".blue().bold(),
+            " Quit ".into(),
+            "<Q> ".blue().bold(),
+        ]));
 
-    let t = Task {
-        title: "Buy a thing".to_string(),
-        description: Some("Go to somewhere and buy a thing".to_string()),
-        created_at: None,
-        completed_at: None,
-        completed: Some(false),
-        category,
-    };
-    // TODO: insert task into table
-    conn.execute(
-        "INSERT INTO tasks (title, description, category_id) VALUES (?1, ?2, ?3)",
-        (&t.title, &t.description, &last_id.to_string()),
-    )?;
+        let block = Block::bordered()
+            .title(title.alignment(Alignment::Center))
+            .title(
+                instructions
+                    .alignment(Alignment::Center)
+                    .position(Position::Bottom),
+            )
+            .border_set(border::THICK);
 
-    let mut stmt = conn.prepare(
-        "select t.title, t.description, t.created_at, t.completed, tt.name, tt.color, t.id from tasks t
-              inner join categories tt
-              on tt.id = t.category_id;",
-    )?;
-    let tasks = stmt
-        .query_map((), |row| {
-            Ok(Task {
-                title: row.get(0).expect("Could not convert title"),
-                description: row.get(1).expect("Could not convert description"),
-                created_at: row.get(2).expect("Could not parse created_at"),
-                completed_at: None,
-                completed: row.get(3)?,
-                category: Category {
-                    name: row.get(4)?,
-                    color: row.get(5)?,
-                },
-            })
-        })
-        .into_iter();
+        let counter_text = Text::from(vec![Line::from(vec![
+            "Value: ".into(),
+            self.counter.to_string().yellow(),
+        ])]);
 
-    // let tasks = raw_tasks.collect::<Vec<_>>();
-    // for task in tasks {
-    //     println!("Task: {:?}", task);
-    // }
+        Paragraph::new(counter_text)
+            .centered()
+            .block(block)
+            .render(area, buf);
+    }
+}
 
-    Ok(tasks)
+fn main() -> Result<()> {
+    let mut terminal = ratatui::init();
+    terminal.clear()?;
+    let app_result = App::default().run(&mut terminal);
+    ratatui::restore();
+    let tasks: Vec<Task> = get_tasks().unwrap();
+    let only_task = &tasks[0];
+    println!("{:?}", only_task);
+    app_result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::style::Style;
+
+    #[test]
+    fn render() {
+        let app = App::default();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 50, 4));
+
+        app.render(buf.area, &mut buf);
+
+        let mut expected = Buffer::with_lines(vec![
+            "┏━━━━━━━━━━━━━ Counter App Tutorial ━━━━━━━━━━━━━┓",
+            "┃                    Value: 0                    ┃",
+            "┃                                                ┃",
+            "┗━ Decrement <Left> Increment <Right> Quit <Q> ━━┛",
+        ]);
+        let title_style = Style::new().bold();
+        let counter_style = Style::new().yellow();
+        let key_style = Style::new().blue().bold();
+        expected.set_style(Rect::new(14, 0, 22, 1), title_style);
+        expected.set_style(Rect::new(28, 1, 1, 1), counter_style);
+        expected.set_style(Rect::new(13, 3, 6, 1), key_style);
+        expected.set_style(Rect::new(30, 3, 7, 1), key_style);
+        expected.set_style(Rect::new(43, 3, 4, 1), key_style);
+        assert_eq!(buf, expected);
+    }
+
+    #[test]
+    fn handle_key_event() -> Result<()> {
+        let mut app = App::default();
+        app.handle_key_event(KeyCode::Right.into()).unwrap();
+        assert_eq!(app.counter, 1);
+
+        app.handle_key_event(KeyCode::Left.into()).unwrap();
+        assert_eq!(app.counter, 0);
+
+        let mut app = App::default();
+        app.handle_key_event(KeyCode::Char('q').into()).unwrap();
+        assert!(app.exit);
+
+        Ok(())
+    }
 }
