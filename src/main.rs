@@ -9,21 +9,31 @@ use ratatui::{
     text::{Line, Text},
     widgets::{
         block::{Position, Title},
-        Block, Paragraph, Widget,
+        Block, ListState, Paragraph, Widget,
     },
     DefaultTerminal, Frame,
 };
-use tasks::{get_tasks, Task};
+use tasks::{task::Task, task_list::TaskList};
 
 mod tasks;
 
-#[derive(Debug, Default)]
 pub struct App {
-    counter: u8,
+    tasks: TaskList,
     exit: bool,
 }
 
 impl App {
+    pub fn new() -> Result<Self> {
+        let tasks = Task::get_tasks()?;
+        let task_list = TaskList {
+            items: tasks,
+            state: ListState::default(),
+        };
+        Ok(Self {
+            tasks: task_list,
+            exit: false,
+        })
+    }
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
@@ -48,8 +58,8 @@ impl App {
     fn handle_key_event(&mut self, key_event: event::KeyEvent) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
-            KeyCode::Left => self.decrement_counter()?,
-            KeyCode::Right => self.increment_counter()?,
+            KeyCode::Left => self.tasks.state.select_previous(),
+            KeyCode::Right => self.tasks.state.select_next(),
             _ => {}
         }
         Ok(())
@@ -57,19 +67,6 @@ impl App {
 
     fn exit(&mut self) {
         self.exit = true;
-    }
-
-    fn decrement_counter(&mut self) -> Result<()> {
-        if self.counter < 1 {
-            return Ok(());
-        }
-        self.counter -= 1;
-        Ok(())
-    }
-
-    fn increment_counter(&mut self) -> Result<()> {
-        self.counter += 1;
-        Ok(())
     }
 }
 
@@ -97,10 +94,19 @@ impl Widget for &App {
             )
             .border_set(border::THICK);
 
-        let counter_text = Text::from(vec![Line::from(vec![
-            "Value: ".into(),
-            self.counter.to_string().yellow(),
-        ])]);
+        let counter_text = Text::from(vec![
+            Line::from(vec![
+                "Value: ".into(),
+                self.tasks.items.len().to_string().yellow(),
+            ]),
+            Line::from(vec![
+                "Selected: ".into(),
+                match self.tasks.state.selected() {
+                    Some(u) => u.to_string().yellow(),
+                    None => 0.to_string().yellow(),
+                },
+            ]),
+        ]);
 
         Paragraph::new(counter_text)
             .centered()
@@ -112,11 +118,8 @@ impl Widget for &App {
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
     terminal.clear()?;
-    let app_result = App::default().run(&mut terminal);
+    let app_result = App::new()?.run(&mut terminal);
     ratatui::restore();
-    let tasks: Vec<Task> = get_tasks().unwrap();
-    let only_task = &tasks[0];
-    println!("{:?}", only_task);
     app_result
 }
 
@@ -126,8 +129,8 @@ mod tests {
     use ratatui::style::Style;
 
     #[test]
-    fn render() {
-        let app = App::default();
+    fn render() -> Result<()> {
+        let app = App::new()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 50, 4));
 
         app.render(buf.area, &mut buf);
@@ -147,18 +150,19 @@ mod tests {
         expected.set_style(Rect::new(30, 3, 7, 1), key_style);
         expected.set_style(Rect::new(43, 3, 4, 1), key_style);
         assert_eq!(buf, expected);
+        Ok(())
     }
 
     #[test]
     fn handle_key_event() -> Result<()> {
-        let mut app = App::default();
+        let mut app = App::new()?;
         app.handle_key_event(KeyCode::Right.into()).unwrap();
-        assert_eq!(app.counter, 1);
+        assert_eq!(app.tasks.state.selected(), Some(1));
 
         app.handle_key_event(KeyCode::Left.into()).unwrap();
-        assert_eq!(app.counter, 0);
+        assert_eq!(app.tasks.state.selected(), Some(0));
 
-        let mut app = App::default();
+        let mut app = App::new()?;
         app.handle_key_event(KeyCode::Char('q').into()).unwrap();
         assert!(app.exit);
 
