@@ -3,7 +3,7 @@ use crossterm::event::Event;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind},
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{
         palette::{
             material::{BLUE, GREEN},
@@ -11,10 +11,9 @@ use ratatui::{
         },
         Color, Modifier, Style, Stylize,
     },
-    symbols::{self, border},
-    text::{Line, Text},
+    symbols::{self},
+    text::Line,
     widgets::{
-        block::{Position, Title},
         Block, Borders, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph,
         StatefulWidget, Widget, Wrap,
     },
