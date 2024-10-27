@@ -32,6 +32,7 @@ const COMPLETED_TEXT_FG_COLOR: Color = GREEN.c500;
 
 pub struct App {
     tasks: TaskList,
+    conn: Connection,
     exit: bool,
 }
 
@@ -44,13 +45,15 @@ const fn alternate_colors(i: usize) -> Color {
 }
 impl App {
     pub fn new(conn: Connection) -> Result<Self> {
-        let tasks = Task::get_tasks(conn)?;
+        Task::ensure_tables(&conn)?;
+        let tasks = Task::get_tasks(&conn)?;
         let task_list = TaskList {
             items: tasks,
             state: ListState::default(),
         };
         Ok(Self {
             tasks: task_list,
+            conn,
             exit: false,
         })
     }
@@ -85,6 +88,10 @@ impl App {
             KeyCode::Char('k') => self.select_previous(),
             KeyCode::Char('g') => self.select_first(),
             KeyCode::Char('G') => self.select_last(),
+            KeyCode::Char('o') => self.insert_task(),
+            KeyCode::Char('i') => self.update_task(),
+            // TODO: Make this more robust with a confirmation
+            // KeyCode::Char('d') => self.delete_task(),
             _ => {}
         }
         Ok(())
@@ -113,6 +120,13 @@ impl App {
     fn select_last(&mut self) {
         self.tasks.state.select_last();
     }
+    fn insert_task(&mut self) {
+        // This way adds a new empty task then assumes we will update the task later
+        //
+        let t = Task::default();
+        Task::add_task(&self.conn, &t).ok();
+        self.tasks.items.push(t);
+    }
 
     fn render_header(area: Rect, buf: &mut Buffer) {
         Paragraph::new("Ctdo list example")
@@ -128,9 +142,11 @@ impl App {
         //     "<q> ".blue().bold(),
         // ]));
 
-        Paragraph::new("Use jk to move, h to unselect, g/G to go top/bottom")
-            .centered()
-            .render(area, buf);
+        Paragraph::new(
+            "Use jk to move, h to unselect, g/G to go top/bottom. <o> to add, <i> to edit.",
+        )
+        .centered()
+        .render(area, buf);
     }
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
         let block = Block::new()
@@ -194,6 +210,17 @@ impl App {
             .fg(TEXT_FG_COLOR)
             .wrap(Wrap { trim: false })
             .render(area, buf);
+    }
+
+    fn update_task(&mut self) {
+        let this_task = if let Some(i) = self.tasks.state.selected() {
+            &mut self.tasks.items[i]
+        } else {
+            &mut self.tasks.items[0]
+        };
+        this_task.title += "a";
+        this_task.description = Some("b".to_string());
+        Task::update_task(&self.conn, this_task).expect("Could not update task");
     }
 }
 
@@ -261,7 +288,7 @@ mod tests {
     use std::borrow::BorrowMut;
 
     use super::*;
-    use ratatui::style::Style;
+    // use ratatui::style::Style;
 
     #[test]
     fn render() -> Result<()> {
@@ -272,23 +299,23 @@ mod tests {
 
         app.render(buf.area, &mut buf);
 
-        let mut expected = Buffer::with_lines(vec![
-            "                           Ctdo list example                          ",
-            "                                                                      ",
-            "                                 List                                 ",
-            "  ✓ Buy a thing                                                       ",
-            "                                                                      ",
-            "                               Preview                                ",
-            " Select an item..                                                     ",
-            "                                                                      ",
-            "          Use jk to move, h to unselect, g/G to go top/bottom         ",
-            "                                                                      ",
-        ]);
-        let title_style = Style::new().bold();
-        let item_style = Style::new()
-            .fg(Color::Rgb(241, 245, 249))
-            .bg(Color::Rgb(21, 101, 192));
-        let key_style = Style::new().blue().bold();
+        // let expected = Buffer::with_lines(vec![
+        //     "                           Ctdo list example                          ",
+        //     "                                                                      ",
+        //     "                                 List                                 ",
+        //     "  ✓ Buy a thing                                                       ",
+        //     "                                                                      ",
+        //     "                               Preview                                ",
+        //     " Select an item..                                                     ",
+        //     "                                                                      ",
+        //     "          Use jk to move, h to unselect, g/G to go top/bottom         ",
+        //     "                                                                      ",
+        // ]);
+        // let title_style = Style::new().bold();
+        // let item_style = Style::new()
+        //     .fg(Color::Rgb(241, 245, 249))
+        //     .bg(Color::Rgb(21, 101, 192));
+        // let key_style = Style::new().blue().bold();
         // FIXME: just need to adjust the styles to use the tailwind colours from ratatui
         // expected.set_style(Rect::new(14, 0, 22, 1), title_style);
         // expected.set_style(Rect::new(0, 2, 0, 1), item_style);
