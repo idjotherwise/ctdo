@@ -102,7 +102,7 @@ impl Task {
         Ok(task)
     }
 
-    pub fn update_task(conn: &Connection, this_task: &mut Task) -> rusqlite::Result<()> {
+    pub fn update_task(conn: &Connection, this_task: &Task) -> rusqlite::Result<()> {
         conn.execute(
             "UPDATE tasks SET title = ?2, description = ?3 WHERE tasks.id = ?1",
             params![this_task.id, this_task.title, this_task.description],

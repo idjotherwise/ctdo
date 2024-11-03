@@ -12,7 +12,7 @@ use ratatui::{
         Color, Modifier, Style, Stylize,
     },
     symbols::{self},
-    text::Line,
+    text::{Line, Span},
     widgets::{
         Block, Borders, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph,
         StatefulWidget, Widget, Wrap,
@@ -30,9 +30,16 @@ const SELECTED_STYLE: Style = Style::new().bg(SLATE.c800).add_modifier(Modifier:
 const TEXT_FG_COLOR: Color = SLATE.c200;
 const COMPLETED_TEXT_FG_COLOR: Color = GREEN.c500;
 
+enum CurrentScreen {
+    List,
+    Editing,
+    Exiting,
+}
+
 pub struct App {
     tasks: TaskList,
     conn: Connection,
+    current_screen: CurrentScreen,
     exit: bool,
 }
 
@@ -54,13 +61,14 @@ impl App {
         Ok(Self {
             tasks: task_list,
             conn,
+            current_screen: CurrentScreen::List,
             exit: false,
         })
     }
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
-            self.handle_events()?;
+            self.handle_events()?
         }
         Ok(())
     }
@@ -79,20 +87,36 @@ impl App {
     }
 
     fn handle_key_event(&mut self, key_event: event::KeyEvent) -> Result<()> {
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Left => self.tasks.state.select_previous(),
-            KeyCode::Right => self.tasks.state.select_next(),
-            KeyCode::Char('h') => self.select_none(),
-            KeyCode::Char('j') => self.select_next(),
-            KeyCode::Char('k') => self.select_previous(),
-            KeyCode::Char('g') => self.select_first(),
-            KeyCode::Char('G') => self.select_last(),
-            KeyCode::Char('o') => self.insert_task(),
-            KeyCode::Char('i') => self.update_task(),
-            // TODO: Make this more robust with a confirmation
-            // KeyCode::Char('d') => self.delete_task(),
-            _ => {}
+        match self.current_screen {
+            CurrentScreen::List => match key_event.code {
+                KeyCode::Char('q') => self.current_screen = CurrentScreen::Exiting,
+                KeyCode::Left => self.tasks.state.select_previous(),
+                KeyCode::Right => self.tasks.state.select_next(),
+                KeyCode::Char('h') => self.select_none(),
+                KeyCode::Char('j') => self.select_next(),
+                KeyCode::Char('k') => self.select_previous(),
+                KeyCode::Char('g') => self.select_first(),
+                KeyCode::Char('G') => self.select_last(),
+                KeyCode::Char('o') => self.insert_task(),
+                KeyCode::Char('i') => self.edit_task(),
+                // TODO: Make this more robust with a confirmation
+                // KeyCode::Char('d') => self.delete_task(),
+                _ => {}
+            },
+            CurrentScreen::Exiting => match key_event.code {
+                KeyCode::Char('y') => self.exit(),
+                KeyCode::Char('n') | KeyCode::Char('q') => {
+                    self.current_screen = CurrentScreen::List
+                }
+                _ => {}
+            },
+            CurrentScreen::Editing => match key_event.code {
+                KeyCode::Enter => {
+                    self.save_task();
+                    self.current_screen = CurrentScreen::List;
+                }
+                _ => {}
+            },
         }
         Ok(())
     }
@@ -134,19 +158,30 @@ impl App {
             .centered()
             .render(area, buf);
     }
-    fn render_footer(area: Rect, buf: &mut Buffer) {
+    fn render_footer(&self, area: Rect, buf: &mut Buffer) {
         // let instructions = Title::from(Line::from(vec![
         //     " Select ".into(),
         //     "<w-s>".blue().bold(),
         //     " Quit ".into(),
         //     "<q> ".blue().bold(),
         // ]));
+        let current_keys_hint = {
+            match self.current_screen {
+            CurrentScreen::List => {
+                Span::styled("(jk) to move, (h) to unselect, (g)/(G) to top/bottom, (o) to add, (i) to edit, (q) quit", Style::default().fg(Color::Red))
+            }
+            CurrentScreen::Editing=> {
+                Span::styled("editing ✍️ (Enter) to save", Style::default().fg(Color::Red))
+            }
+            CurrentScreen::Exiting => {
+                Span::styled("Are you sure you want to quit? (y) to confirm, (q) or (n) to cancel", Style::default().fg(Color::Red))
+            }
+        }
+        };
 
-        Paragraph::new(
-            "Use jk to move, h to unselect, g/G to go top/bottom. <o> to add, <i> to edit.",
-        )
-        .centered()
-        .render(area, buf);
+        Paragraph::new(Line::from(current_keys_hint))
+            .centered()
+            .render(area, buf);
     }
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
         let block = Block::new()
@@ -212,15 +247,24 @@ impl App {
             .render(area, buf);
     }
 
-    fn update_task(&mut self) {
+    fn edit_task(&mut self) {
+        self.current_screen = CurrentScreen::Editing;
         let this_task = if let Some(i) = self.tasks.state.selected() {
-            &mut self.tasks.items[i]
+            &mut self.tasks.items[i].clone()
         } else {
-            &mut self.tasks.items[0]
+            &mut self.tasks.items[0].clone()
         };
         this_task.title += "a";
         this_task.description = Some("b".to_string());
-        Task::update_task(&self.conn, this_task).expect("Could not update task");
+        self.save_task();
+    }
+    fn save_task(&self) {
+        let this_task = if let Some(i) = self.tasks.state.selected() {
+            &mut self.tasks.items[i].clone()
+        } else {
+            &mut self.tasks.items[0].clone()
+        };
+        Task::update_task(&self.conn, this_task).expect("Could not update the task");
     }
 }
 
@@ -242,7 +286,7 @@ impl Widget for &mut App {
         App::render_header(header_area, buf);
         self.render_list(list_area, buf);
         self.render_selected_item(item_area, buf);
-        App::render_footer(footer_area, buf);
+        self.render_footer(footer_area, buf);
 
         // let block = Block::bordered()
         //     .title(title.alignment(Alignment::Center))
