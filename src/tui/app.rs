@@ -106,7 +106,6 @@ impl App {
                 KeyCode::Char('G') => self.select_last(),
                 KeyCode::Char('o') => self.insert_task(),
                 KeyCode::Char('i') => self.edit_task(),
-                // TODO: Make this more robust with a confirmation
                 KeyCode::Char('d') => self.delete_task(),
                 _ => {}
             },
@@ -146,7 +145,7 @@ impl App {
                             None => {}
                         }
                     }
-                    None => panic!("this should not happen brother"),
+                    None => {}
                 },
                 KeyCode::Backspace => match self.tasks.state.selected() {
                     Some(i) => {
@@ -200,6 +199,8 @@ impl App {
         let t = Task::default();
         Task::add_task(&self.conn, &t).ok();
         self.tasks.items.push(t);
+        self.tasks.state.select_last();
+        self.edit_task();
     }
 
     fn render_header(area: Rect, buf: &mut Buffer) {
@@ -316,8 +317,10 @@ impl App {
     }
 
     fn edit_task(&mut self) {
-        self.current_screen = CurrentScreen::Editing;
-        self.currently_editing = Some(CurrentlyEditing::Title);
+        if self.tasks.items.len() > 0 {
+            self.current_screen = CurrentScreen::Editing;
+            self.currently_editing = Some(CurrentlyEditing::Title);
+        }
     }
     fn save_task(&self) {
         let this_task = if let Some(i) = self.tasks.state.selected() {
