@@ -109,4 +109,12 @@ impl Task {
         )?;
         Ok(())
     }
+
+    pub fn delete_task(conn: &Connection, this_task: &mut Task) -> rusqlite::Result<()> {
+        conn.execute(
+            "DELETE FROM tasks WHERE tasks.id = ?1",
+            params![this_task.id],
+        )?;
+        Ok(())
+    }
 }

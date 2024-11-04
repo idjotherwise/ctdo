@@ -36,10 +36,16 @@ enum CurrentScreen {
     Exiting,
 }
 
+enum CurrentlyEditing {
+    Title,
+    Description,
+}
+
 pub struct App {
     tasks: TaskList,
     conn: Connection,
     current_screen: CurrentScreen,
+    currently_editing: Option<CurrentlyEditing>,
     exit: bool,
 }
 
@@ -62,6 +68,7 @@ impl App {
             tasks: task_list,
             conn,
             current_screen: CurrentScreen::List,
+            currently_editing: None,
             exit: false,
         })
     }
@@ -100,7 +107,7 @@ impl App {
                 KeyCode::Char('o') => self.insert_task(),
                 KeyCode::Char('i') => self.edit_task(),
                 // TODO: Make this more robust with a confirmation
-                // KeyCode::Char('d') => self.delete_task(),
+                KeyCode::Char('d') => self.delete_task(),
                 _ => {}
             },
             CurrentScreen::Exiting => match key_event.code {
@@ -114,7 +121,50 @@ impl App {
                 KeyCode::Enter => {
                     self.save_task();
                     self.current_screen = CurrentScreen::List;
+                    self.currently_editing = None;
                 }
+                KeyCode::Tab => match self.currently_editing {
+                    Some(CurrentlyEditing::Title) => {
+                        self.currently_editing = Some(CurrentlyEditing::Description)
+                    }
+                    Some(CurrentlyEditing::Description) => {
+                        self.currently_editing = Some(CurrentlyEditing::Title)
+                    }
+                    None => {}
+                },
+                KeyCode::Char(value) => match self.tasks.state.selected() {
+                    Some(i) => {
+                        let this_task = &mut self.tasks.items[i];
+                        match self.currently_editing {
+                            Some(CurrentlyEditing::Title) => this_task.title.push(value),
+                            Some(CurrentlyEditing::Description) => {
+                                match &mut this_task.description {
+                                    Some(d) => d.push(value),
+                                    None => this_task.description = Some(value.to_string()),
+                                }
+                            }
+                            None => {}
+                        }
+                    }
+                    None => panic!("this should not happen brother"),
+                },
+                KeyCode::Backspace => match self.tasks.state.selected() {
+                    Some(i) => {
+                        let this_task = &mut self.tasks.items[i];
+                        match self.currently_editing {
+                            Some(CurrentlyEditing::Title) => this_task.title.pop(),
+                            Some(CurrentlyEditing::Description) => {
+                                match &mut this_task.description {
+                                    Some(d) => d.pop(),
+                                    None => None,
+                                }
+                            }
+                            None => None,
+                        };
+                    }
+                    None => panic!("this should not happen brother"),
+                },
+
                 _ => {}
             },
         }
@@ -159,19 +209,13 @@ impl App {
             .render(area, buf);
     }
     fn render_footer(&self, area: Rect, buf: &mut Buffer) {
-        // let instructions = Title::from(Line::from(vec![
-        //     " Select ".into(),
-        //     "<w-s>".blue().bold(),
-        //     " Quit ".into(),
-        //     "<q> ".blue().bold(),
-        // ]));
         let current_keys_hint = {
             match self.current_screen {
             CurrentScreen::List => {
                 Span::styled("(jk) to move, (h) to unselect, (g)/(G) to top/bottom, (o) to add, (i) to edit, (q) quit", Style::default().fg(Color::Red))
             }
             CurrentScreen::Editing=> {
-                Span::styled("editing ✍️ (Enter) to save", Style::default().fg(Color::Red))
+                Span::styled("editing ✍️ (Enter) to save, (Tab) to switch fields", Style::default().fg(Color::Red))
             }
             CurrentScreen::Exiting => {
                 Span::styled("Are you sure you want to quit? (y) to confirm, (q) or (n) to cancel", Style::default().fg(Color::Red))
@@ -207,7 +251,10 @@ impl App {
         let list = List::new(items)
             .block(block)
             .highlight_style(SELECTED_STYLE)
-            .highlight_symbol(">")
+            .highlight_symbol(match self.currently_editing {
+                Some(CurrentlyEditing::Title) => "✍️",
+                _ => ">",
+            })
             .highlight_spacing(HighlightSpacing::Always);
 
         // We need to disambiguate this trait method as both `Widget` and `StatefulWidget` share the
@@ -232,13 +279,34 @@ impl App {
             "Select an item..".to_string()
         };
 
-        let block = Block::new()
-            .title(Line::raw("Preview").centered())
-            .borders(Borders::TOP)
-            .border_set(symbols::border::EMPTY)
-            .border_style(TODO_HEADER_STYLE)
-            .bg(NORMAL_ROW_BG)
-            .padding(Padding::horizontal(1));
+        let block = match self.currently_editing {
+            Some(CurrentlyEditing::Description) => Block::new()
+                .title(
+                    Line::raw(match self.currently_editing {
+                        Some(CurrentlyEditing::Description) => "Preview ✍️",
+                        _ => "Preview",
+                    })
+                    .centered(),
+                )
+                .borders(Borders::ALL)
+                .border_set(symbols::border::EMPTY)
+                .border_style(TODO_HEADER_STYLE)
+                .bg(NORMAL_ROW_BG)
+                .padding(Padding::horizontal(1)),
+            _ => Block::new()
+                .title(
+                    Line::raw(match self.currently_editing {
+                        Some(CurrentlyEditing::Description) => "Preview ✍️",
+                        _ => "Preview",
+                    })
+                    .centered(),
+                )
+                .borders(Borders::TOP)
+                .border_set(symbols::border::EMPTY)
+                .border_style(TODO_HEADER_STYLE)
+                .bg(NORMAL_ROW_BG)
+                .padding(Padding::horizontal(1)),
+        };
 
         Paragraph::new(info)
             .block(block)
@@ -249,14 +317,7 @@ impl App {
 
     fn edit_task(&mut self) {
         self.current_screen = CurrentScreen::Editing;
-        let this_task = if let Some(i) = self.tasks.state.selected() {
-            &mut self.tasks.items[i].clone()
-        } else {
-            &mut self.tasks.items[0].clone()
-        };
-        this_task.title += "a";
-        this_task.description = Some("b".to_string());
-        self.save_task();
+        self.currently_editing = Some(CurrentlyEditing::Title);
     }
     fn save_task(&self) {
         let this_task = if let Some(i) = self.tasks.state.selected() {
@@ -265,6 +326,16 @@ impl App {
             &mut self.tasks.items[0].clone()
         };
         Task::update_task(&self.conn, this_task).expect("Could not update the task");
+    }
+
+    fn delete_task(&mut self) {
+        let (this_task, idx) = if let Some(i) = self.tasks.state.selected() {
+            (&mut self.tasks.items[i].clone(), i)
+        } else {
+            (&mut self.tasks.items[0].clone(), 0)
+        };
+        Task::delete_task(&self.conn, this_task).expect("Could not delete the task!");
+        self.tasks.items.remove(idx);
     }
 }
 
