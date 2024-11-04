@@ -358,34 +358,6 @@ impl Widget for &mut App {
         self.render_list(list_area, buf);
         self.render_selected_item(item_area, buf);
         self.render_footer(footer_area, buf);
-
-        // let block = Block::bordered()
-        //     .title(title.alignment(Alignment::Center))
-        //     .title(
-        //         instructions
-        //             .alignment(Alignment::Center)
-        //             .position(Position::Bottom),
-        //     )
-        //     .border_set(border::THICK);
-
-        // let counter_text = Text::from(vec![
-        //     Line::from(vec![
-        //         "Value: ".into(),
-        //         self.tasks.items.len().to_string().yellow(),
-        //     ]),
-        //     Line::from(vec![
-        //         "Selected: ".into(),
-        //         match self.tasks.state.selected() {
-        //             Some(u) => u.to_string().yellow(),
-        //             None => 0.to_string().yellow(),
-        //         },
-        //     ]),
-        // ]);
-
-        // Paragraph::new(counter_text)
-        //     .centered()
-        //     .block(block)
-        //     .render(area, buf);
     }
 }
 impl From<&Task> for ListItem<'_> {
@@ -413,30 +385,6 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 70, 10));
 
         app.render(buf.area, &mut buf);
-
-        // let expected = Buffer::with_lines(vec![
-        //     "                           Ctdo list example                          ",
-        //     "                                                                      ",
-        //     "                                 List                                 ",
-        //     "  ✓ Buy a thing                                                       ",
-        //     "                                                                      ",
-        //     "                               Preview                                ",
-        //     " Select an item..                                                     ",
-        //     "                                                                      ",
-        //     "          Use jk to move, h to unselect, g/G to go top/bottom         ",
-        //     "                                                                      ",
-        // ]);
-        // let title_style = Style::new().bold();
-        // let item_style = Style::new()
-        //     .fg(Color::Rgb(241, 245, 249))
-        //     .bg(Color::Rgb(21, 101, 192));
-        // let key_style = Style::new().blue().bold();
-        // FIXME: just need to adjust the styles to use the tailwind colours from ratatui
-        // expected.set_style(Rect::new(14, 0, 22, 1), title_style);
-        // expected.set_style(Rect::new(0, 2, 0, 1), item_style);
-        // expected.set_style(Rect::new(21, 3, 5, 1), key_style);
-        // expected.set_style(Rect::new(32, 3, 4, 1), key_style);
-        // assert_eq!(buf, expected);
         Ok(())
     }
 
