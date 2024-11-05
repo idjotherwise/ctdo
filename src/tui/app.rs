@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use anyhow::Result;
 use crossterm::event::Event;
 use ratatui::{
@@ -131,8 +133,8 @@ impl App {
                     }
                     None => {}
                 },
-                KeyCode::Char(value) => match self.tasks.state.selected() {
-                    Some(i) => {
+                KeyCode::Char(value) => {
+                    if let Some(i) = self.tasks.state.selected() {
                         let this_task = &mut self.tasks.items[i];
                         match self.currently_editing {
                             Some(CurrentlyEditing::Title) => this_task.title.push(value),
@@ -145,8 +147,7 @@ impl App {
                             None => {}
                         }
                     }
-                    None => {}
-                },
+                }
                 KeyCode::Backspace => match self.tasks.state.selected() {
                     Some(i) => {
                         let this_task = &mut self.tasks.items[i];
@@ -254,7 +255,7 @@ impl App {
             .highlight_style(SELECTED_STYLE)
             .highlight_symbol(match self.currently_editing {
                 Some(CurrentlyEditing::Title) => "✍️",
-                _ => ">",
+                _ => ">>",
             })
             .highlight_spacing(HighlightSpacing::Always);
 
@@ -317,7 +318,7 @@ impl App {
     }
 
     fn edit_task(&mut self) {
-        if self.tasks.items.len() > 0 {
+        if !self.tasks.items.is_empty() {
             self.current_screen = CurrentScreen::Editing;
             self.currently_editing = Some(CurrentlyEditing::Title);
         }
@@ -366,8 +367,22 @@ impl Widget for &mut App {
 impl From<&Task> for ListItem<'_> {
     fn from(value: &Task) -> Self {
         let line = match value.completed {
-            Some(true) => Line::styled(format!(" ☐ {}", value.title), TEXT_FG_COLOR),
-            Some(false) => Line::styled(format!(" ✓ {}", value.title), COMPLETED_TEXT_FG_COLOR),
+            Some(true) => Line::from(vec![
+                Span::styled(format!(" ✓ {}", value.title), COMPLETED_TEXT_FG_COLOR),
+                Span::styled(
+                    format!(" - {}", value.category.name),
+                    Style::new().fg(Color::from_str(value.category.color.as_str())
+                        .expect("Couldn't get the color from the db")),
+                ),
+            ]),
+            Some(false) => Line::from(vec![
+                Span::styled(format!(" ☐ {}", value.title), TEXT_FG_COLOR),
+                Span::styled(
+                    format!(" - {}", value.category.name),
+                    Style::new().fg(Color::from_str(value.category.color.as_str())
+                        .expect("Couldn't get the color from the db")),
+                ),
+            ]),
             None => Line::styled(format!("? {}", value.title), TEXT_FG_COLOR),
         };
         ListItem::new(line)
